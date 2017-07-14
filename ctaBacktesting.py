@@ -1,5 +1,7 @@
 # encoding: UTF-8
 
+# To-dos : 多和空的收益分开计算！看到底是多仓亏了钱还是空仓亏了钱！
+
 '''
 本文件中包含的是CTA模块的回测引擎，回测引擎的API和CTA引擎一致，
 可以使用和实盘相同的代码进行回测。
@@ -11,6 +13,7 @@ from collections import OrderedDict
 from itertools import product
 import multiprocessing
 import pymongo
+import numpy as np
 
 from vnpy.trader.vtGlobal import globalSetting
 from vnpy.trader.vtObject import VtTickData, VtBarData
@@ -481,7 +484,10 @@ class BacktestingEngine(object):
         
         # 首先基于回测后的成交记录，计算每笔交易的盈亏
         resultList = []             # 交易结果列表
-        
+
+        longTradeList = []          # 多头交易列表
+        shortTradeList = []         # 空头交易列表
+
         longTrade = []              # 未平仓的多头交易
         shortTrade = []             # 未平仓的空头交易
         
@@ -506,7 +512,8 @@ class BacktestingEngine(object):
                                                exitTrade.price, exitTrade.dt,
                                                -closedVolume, self.rate, self.slippage, self.size)
                         resultList.append(result)
-                        
+                        longTradeList.append(result.pnl * self.leverage)   # 加入多头交易
+
                         posList.extend([-1,0])
                         tradeTimeList.extend([result.entryDt, result.exitDt])
                         
@@ -550,6 +557,8 @@ class BacktestingEngine(object):
                                                exitTrade.price, exitTrade.dt,
                                                closedVolume, self.rate, self.slippage, self.size)
                         resultList.append(result)
+
+                        shortTradeList.append(result.pnl * self.leverage)  # 加入空头交易
                         
                         posList.extend([1,0])
                         tradeTimeList.extend([result.entryDt, result.exitDt])
@@ -587,6 +596,9 @@ class BacktestingEngine(object):
         maxCapital = 0          # 资金最高净值
         drawdown = 0            # 回撤
         drawdownpctList = []        # 回撤比例
+
+        longPnl = np.array(longTradeList).mean()    # 多仓平均利润
+        shortPnl = np.array(shortTradeList).mean()  # 空仓平均利润
 
         networthList = []       # 净值数据序列
         totalResult = 0         # 总成交数量
@@ -671,6 +683,8 @@ class BacktestingEngine(object):
         d['tradeTimeList'] = tradeTimeList
         d['drawdownpctList'] = drawdownpctList  #
         d['networthList'] = networthList
+        d['longPnl'] = longPnl
+        d['shortPnl'] = shortPnl
         
         return d
         
@@ -702,6 +716,8 @@ class BacktestingEngine(object):
         self.output(u'盈利交易平均值\t%s' %formatNumber(d['averageWinning']))
         self.output(u'亏损交易平均值\t%s' %formatNumber(d['averageLosing']))
         self.output(u'盈亏比：\t%s' %formatNumber(d['profitLossRatio']))
+        self.output(u'多仓平均利润：\t%s' % formatNumber(d['longPnl']))
+        self.output(u'空仓平均利润：\t%s' % formatNumber(d['shortPnl']))
     
         # 绘图
         import matplotlib.pyplot as plt        
@@ -1021,9 +1037,12 @@ if __name__ == '__main__':
     engine.setDatabase(MINUTE_DB_NAME, 'IF0000')
     
     # 设置产品相关参数
-    engine.setSlippage(0.2)     # 股指1跳
-    engine.setRate(0.3/10000)   # 万0.3
-    engine.setSize(300)         # 股指合约大小    
+    engine.setInitialCapital(2000000)  # 初始资金200w （大概 %50 仓位）
+    engine.setLeverage(1)  # 2倍杠杆
+    engine.setSlippage(0.2)  # 股指1跳
+    engine.setRate(0.3 / 10000)  # 万0.3
+    engine.setSize(300)  # 股指合约大小
+    engine.setPriceTick(0.2)  # 股指最小价格变动
     
     # 在引擎中创建策略对象
     engine.initStrategy(EmaDemoStrategy, {})
