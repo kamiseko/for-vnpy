@@ -704,11 +704,15 @@ class BacktestingEngine(object):
         self.output(u'总交易次数：\t%s' % formatNumber(d['totalResult']))
         self.output(u'期末净值：\t%s' % formatNumber(d['networthList'][-1]))
         self.output(u'总盈亏：\t%s' % formatNumber(d['capital'] - self.initcapital))
-        self.output(u'年化收益率：\t%s' % formatNumber((d['networthList'][-1])** trueTimeDelta -1.))
+
         self.output(u'最大回撤: \t%s' % formatNumber(min(d['drawdownList'])))
         self.output(u'最大回撤百分比: \t%s' % formatNumber(min(d['drawdownpctList'])))
-        self.output(u'收益回撤比: \t%s' % formatNumber(((d['networthList'][-1])** trueTimeDelta -1.) /min(d['drawdownpctList'])))
-
+        try:
+            self.output(u'年化收益率：\t%s' % formatNumber((d['networthList'][-1])** trueTimeDelta -1.))
+            self.output(u'收益回撤比: \t%s' % formatNumber(
+                ((d['networthList'][-1]) ** trueTimeDelta - 1.) / min(d['drawdownpctList'])))
+        except:
+            self.output(u'净值为负！')
         self.output(u'平均每笔盈利：\t%s' %formatNumber(d['capital']/d['totalResult']))
         self.output(u'平均每笔滑点：\t%s' %formatNumber(d['totalSlippage']/d['totalResult']))
         self.output(u'平均每笔佣金：\t%s' %formatNumber(d['totalCommission']/d['totalResult']))
@@ -731,12 +735,13 @@ class BacktestingEngine(object):
 
         pCapital = plt.subplot(4, 1, 1)
         pCapital.set_ylabel("networth")
-        pCapital.plot(d['networthList'], color='r', lw=0.8)
+        pCapital.plot(d['timeList'],d['networthList'], color='r', lw=0.8)
 
         if not self.pnlPctToggle:
             pDD = plt.subplot(4, 1, 2)
             pDD.set_ylabel("DD")
             pDD.bar(range(len(d['drawdownList'])), d['drawdownList'], color='g')
+
 
             pPnl = plt.subplot(4, 1, 3)
             pPnl.set_ylabel("pnl")
@@ -756,14 +761,15 @@ class BacktestingEngine(object):
         pPos.set_ylabel("Position")
         if d['posList'][-1] == 0:
             del d['posList'][-1]
-        tradeTimeIndex = [item.strftime("%m/%d %H:%M:%S") for item in d['tradeTimeList']]
+        tradeTimeIndex = [item.strftime("%Y/%m/%d %H:%M:%S") for item in d['tradeTimeList']]
         xindex = np.arange(0, len(tradeTimeIndex), np.int(len(tradeTimeIndex)/10))
         tradeTimeIndex = map(lambda i: tradeTimeIndex[i], xindex)
+        #pPos.plot(d['timeList'],d['posList'], color='k', drawstyle='steps-pre')
         pPos.plot(d['posList'], color='k', drawstyle='steps-pre')
         pPos.set_ylim(-1.2, 1.2)
         plt.sca(pPos)
         plt.tight_layout()
-        plt.xticks(xindex, tradeTimeIndex, rotation=30)  # 旋转15
+        plt.xticks(xindex, tradeTimeIndex, rotation=10)  # 旋转15
         
         plt.show()
     
@@ -1036,7 +1042,7 @@ if __name__ == '__main__':
     # 载入历史数据到引擎中
     engine.setDatabase(MINUTE_DB_NAME, 'IF0000')
     
-    # 设置产品相关参数
+    # 设置产品相关参数 股指1分钟
     engine.setInitialCapital(2000000)  # 初始资金200w （大概 %50 仓位）
     engine.setLeverage(1)  # 2倍杠杆
     engine.setSlippage(0.2)  # 股指1跳
@@ -1054,4 +1060,114 @@ if __name__ == '__main__':
     # spyder或者ipython notebook中运行时，会弹出盈亏曲线图
     # 直接在cmd中回测则只会打印一些回测数值
     engine.showBacktestingResult()
-    
+
+    # 设置产品相关参数 沪铜1分钟
+    engine.setInitialCapital(2000000)  # 初始资金200w （大概 %50 仓位）
+    engine.setLeverage(1)  # 2倍杠杆
+    engine.setSlippage(10)  # 股指1跳
+    engine.setRate(0.3 / 10000)  # 万0.3
+    engine.setSize(5)  # 股指合约大小
+    engine.setPriceTick(10)  # 股指最小价格变动
+    engine.setpnlPctToggle(True)  # 百分比显示开关
+    # 设置使用的历史数据库
+    engine.setDatabase('Data', 'CU000')
+
+    # 设置产品相关参数 橡胶1分钟
+    engine.setInitialCapital(100000)  # 初始资金10w
+    engine.setLeverage(1)  # 2倍杠杆
+    engine.setSlippage(5)  # 股指1跳
+    engine.setRate(0.3 / 10000)  # 万0.3
+    engine.setSize(10)  # 股指合约大小
+    engine.setPriceTick(5)  # 股指最小价格变动 0.2
+    engine.setpnlPctToggle(True)  # 百分比显示开关
+    # 设置使用的历史数据库
+    engine.setDatabase('Data', 'ru000_1min')
+
+    # 设置产品相关参数  螺纹钢1分钟
+    engine.setInitialCapital(100000)  # 初始资金10w
+    engine.setLeverage(2)  # 2倍杠杆
+    engine.setSlippage(1)  # 股指1跳
+    engine.setRate(0.3 / 10000)  # 万0.3
+    engine.setSize(10)  # 股指合约大小
+    engine.setPriceTick(1)  # 股指最小价格变动 0.2
+    engine.setpnlPctToggle(True)  # 百分比显示开关
+    # 设置使用的历史数据库
+    engine.setDatabase('Data', 'RB000')
+
+
+    # 设置使用的历史数据库 塑料1分钟
+    engine.setInitialCapital(100000)  # 初始资金10w
+    engine.setLeverage(2)  # 2倍杠杆
+    engine.setSlippage(5)  # 1跳
+    engine.setRate(0.3 / 10000)  # 万0.3
+    engine.setSize(5)  # 股指合约大小
+    engine.setPriceTick(5)  # 股指最小价格变动 0.2
+    engine.setpnlPctToggle(True)  # 百分比显示开关
+    # 设置使用的历史数据库
+    engine.setDatabase('Data', 'L9000_1min')
+
+    # 设置使用的历史数据库 焦炭1分钟
+    engine.setInitialCapital(100000)  # 初始资金10w
+    engine.setLeverage(2)  # 2倍杠杆
+    engine.setSlippage(0.5)  # 1跳
+    engine.setRate(0.3 / 10000)  # 万0.3
+    engine.setSize(100)  # 股指合约大小
+    engine.setPriceTick(0.5)  # 股指最小价格变动 0.2
+    engine.setpnlPctToggle(True)  # 百分比显示开关
+    engine.setDatabase('Data', 'J9000_1min')
+
+
+    # 设置使用的历史数据库 黄金1分钟
+    engine.setInitialCapital(100000)  # 初始资金10w
+    engine.setLeverage(2)  # 2倍杠杆
+    engine.setSlippage(0.05)  # 1跳
+    engine.setRate(0.3 / 10000)  # 万0.3
+    engine.setSize(1000)  # 股指合约大小
+    engine.setPriceTick(0.05)  # 股指最小价格变动 0.2
+    engine.setpnlPctToggle(True)  # 百分比显示开关
+    engine.setDatabase('Data', 'AU000_1min')
+
+    # 设置使用的历史数据库 白糖1分钟
+    engine.setInitialCapital(100000)  # 初始资金10w
+    engine.setLeverage(2)  # 2倍杠杆
+    engine.setSlippage(1)  # 1跳
+    engine.setRate(0.3 / 10000)  # 万0.3
+    engine.setSize(10)  # 股指合约大小
+    engine.setPriceTick(1)  # 股指最小价格变动 0.2
+    engine.setpnlPctToggle(True)  # 百分比显示开关
+    engine.setDatabase('Data', 'SR000_1min')
+
+
+
+    # 设置使用的历史数据库 棉花1分钟
+    engine.setInitialCapital(100000)  # 初始资金10w
+    engine.setLeverage(2)  # 2倍杠杆
+    engine.setSlippage(5)  # 1跳
+    engine.setRate(0.3 / 10000)  # 万0.3
+    engine.setSize(5)  # 股指合约大小
+    engine.setPriceTick(5)  # 股指最小价格变动 0.2
+    engine.setpnlPctToggle(True)  # 百分比显示开关
+    engine.setDatabase('Data', 'CF000_1min')
+
+
+    # 设置使用的历史数据库 棉花1分钟
+    engine.setInitialCapital(100000)  # 初始资金10w
+    engine.setLeverage(2)  # 2倍杠杆
+    engine.setSlippage(1)  # 1跳
+    engine.setRate(0.3 / 10000)  # 万0.3
+    engine.setSize(10)  # 股指合约大小
+    engine.setPriceTick(1)  # 股指最小价格变动 0.2
+    engine.setpnlPctToggle(True)  # 百分比显示开关
+    engine.setDatabase('Data', 'm9000_1min')
+
+
+    # 设置使用的历史数据库 棕榈油1分钟
+    engine.setInitialCapital(100000)  # 初始资金10w
+    engine.setLeverage(2)  # 2倍杠杆
+    engine.setSlippage(2)  # 1跳
+    engine.setRate(0.3 / 10000)  # 万0.3
+    engine.setSize(10)  # 股指合约大小
+    engine.setPriceTick(2)  # 股指最小价格变动 0.2
+    engine.setpnlPctToggle(True)  # 百分比显示开关
+    engine.setDatabase('Data', 'p9000_1min')
+
