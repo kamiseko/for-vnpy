@@ -70,7 +70,7 @@ class MinuteCTA(CtaTemplate):
     kkLength = 11  # 计算通道中值的窗口数
     kkDevUp = 1.8  # 计算通道宽度的偏差
     kkDevDown = 2.  #
-    trailingPrcnt = 1  # 移动止损
+    trailingPrcnt = 1.5  # 移动止损
     fixedCutLoss = 3   # 成本固定止损
     initDays = 10  # 初始化数据所用的天数
     fixedSize = 1  # 每次交易的数量
@@ -100,6 +100,7 @@ class MinuteCTA(CtaTemplate):
     shortMA = np.zeros(bufferSize)
     longMA = np.zeros(bufferSize)
     atrArray = np.zeros(bufferSize)
+    openInterestArray = np.zeros(bufferSize)
 
     atrValue = 0  # 最新的ATR指标数值
     kkMid = 0  # KK通道中轨
@@ -180,6 +181,7 @@ class MinuteCTA(CtaTemplate):
             bar.low = tick.lastPrice
             bar.close = tick.lastPrice
             bar.volume = tick.volume
+            bar.openInterest = tick.openInterest
 
             bar.date = tick.date
             bar.time = tick.time
@@ -207,6 +209,10 @@ class MinuteCTA(CtaTemplate):
                 fiveBar.low = min(fiveBar.low, bar.low)
                 fiveBar.close = bar.close
                 fiveBar.volume+= bar.volume
+                fiveBar.openInterest = bar.openInterest
+
+                #print fiveBar.volume
+
 
                 # 推送5分钟线数据
                 self.onFiveBar(fiveBar)
@@ -227,6 +233,8 @@ class MinuteCTA(CtaTemplate):
                 fiveBar.low = bar.low
                 fiveBar.close = bar.close
                 fiveBar.volume = bar.volume
+                fiveBar.openInterest = bar.openInterest
+
 
                 fiveBar.date = bar.date
                 fiveBar.time = bar.time
@@ -239,6 +247,8 @@ class MinuteCTA(CtaTemplate):
                 fiveBar.low = min(fiveBar.low, bar.low)
                 fiveBar.close = bar.close
                 fiveBar.volume += bar.volume
+                fiveBar.openInterest = bar.openInterest
+
 
     # ----------------------------------------------------------------------
     def onFiveBar(self, bar):
@@ -253,11 +263,15 @@ class MinuteCTA(CtaTemplate):
         self.highArray[0:self.bufferSize - 1] = self.highArray[1:self.bufferSize]
         self.lowArray[0:self.bufferSize - 1] = self.lowArray[1:self.bufferSize]
         self.volumeArray[0:self.bufferSize - 1] = self.volumeArray[1:self.bufferSize]
+        self.openInterestArray[0:self.bufferSize - 1] = self.openInterestArray[1:self.bufferSize]
 
         self.closeArray[-1] = bar.close
         self.highArray[-1] = bar.high
         self.lowArray[-1] = bar.low
         self.volumeArray[-1] = bar.volume
+        self.openInterestArray[-1] = bar.openInterest  # 持仓量
+        #print self.volumeArray
+        #print self.openInterestArray
 
         self.bufferCount += 1
         if self.bufferCount < self.bufferSize:
@@ -280,6 +294,9 @@ class MinuteCTA(CtaTemplate):
         self.atrMa = talib.MA(self.atrArray,
                               self.atrMaLength)[-1]
 
+        self.openRatio = (self.openInterestArray[-1] - self.openInterestArray[-2]) / self.volumeArray[-1]
+        #print self.openRatio
+
 
 
 
@@ -299,13 +316,14 @@ class MinuteCTA(CtaTemplate):
             conditionSVDSell = (self.closeArray[-1] < self.svdArrayShort[-1]) and (self.closeArray[-2] > self.svdArrayShort[-2])
             conditionKKBuy = self.closeArray[-1] > self.kkUp
             conditionKKSell = self.closeArray[-1] < self.kkDown
+            conditionOpenRatio = self.openRatio > 0.16
 
             self.intraTradeHigh = bar.high
             self.intraTradeLow = bar.low
-            if conditionOBVBuy and conditionKKBuy and condtionATR:
+            if conditionKKBuy and conditionOpenRatio :
                 self.buy(bar.close + 5, self.fixedSize)
                 self.buyCost.append(bar.close + 5)
-            elif  conditionOBVSell and conditionKKSell and condtionATR:
+            elif conditionKKSell and conditionOpenRatio :
                 self.short(bar.close - 5, self.fixedSize)
                 self.shortCost.append(bar.close - 5)
 
@@ -398,16 +416,16 @@ if __name__ == '__main__':
     engine.setEndDate('20170601')
 
     # 设置产品相关参数
-    engine.setInitialCapital(100000)  # 初始资金10w
+    engine.setInitialCapital(20000)  # 初始资金10w
     engine.setLeverage(1)  # 1倍杠杆
     engine.setSlippage(1)  # 股指1跳
-    engine.setRate(0.3 / 10000)  # 万0.3
+    engine.setRate(3 / 10000)  # 万0.3
     engine.setSize(10)  # 股指合约大小
     engine.setPriceTick(1)  # 股指最小价格变动 0.2
     engine.setpnlPctToggle(True)  # 百分比显示开关
 
     # 设置使用的历史数据库
-    engine.setDatabase('Data', 'RB000')
+    engine.setDatabase('FutureData_Index', 'rb000_1min_modi')
 
     # 在引擎中创建策略对象
     d = {}
