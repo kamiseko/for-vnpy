@@ -67,10 +67,11 @@ class MinuteCTA(CtaTemplate):
     # 策略参数
     atrLength = 22  # 计算ATR指标的窗口数
     atrMaLength = 10  # 计算ATR均线的窗口数
-    kkLength = 11  # 计算通道中值的窗口数
-    kkDevUp = 1.8  # 计算通道宽度的偏差
-    kkDevDown = 2.  #
-    trailingPrcnt = 1.5  # 移动止损
+    kkLength = 15  # 计算通道中值的窗口数
+    kkDevUp = 2.1 # 计算通道宽度的偏差
+    kkDevDown = 1.9  #
+    trailingPrcnt = 1.2  # 移动止损
+    thresholdRatio = 0.16   # 持仓量指标阈值
     fixedCutLoss = 3   # 成本固定止损
     initDays = 10  # 初始化数据所用的天数
     fixedSize = 1  # 每次交易的数量
@@ -114,6 +115,8 @@ class MinuteCTA(CtaTemplate):
     orderList = []  # 保存委托代码的列表
     buyCost = []    # 买入成本
     shortCost = []  # 卖出成本
+    signalBuy = []   # 统计买入信号
+    signalSell = []   # 统计卖出信号
 
     # 参数列表，保存了参数的名称
     paramList = ['name',
@@ -121,7 +124,9 @@ class MinuteCTA(CtaTemplate):
                  'author',
                  'vtSymbol',
                  'kkLength',
-                 'kkDev']
+                 'kkDevUp',
+                 'kkDevDown',
+                 'thresholdRatio']
 
     # 变量列表，保存了变量的名称
     varList = ['inited',
@@ -295,28 +300,37 @@ class MinuteCTA(CtaTemplate):
                               self.atrMaLength)[-1]
 
         self.openRatio = (self.openInterestArray[-1] - self.openInterestArray[-2]) / self.volumeArray[-1]
+        #self.openRatioPre = (self.openInterestArray[-2] - self.openInterestArray[-3]) / self.volumeArray[-2]
         #print self.openRatio
 
+        conditionKKBuy = self.closeArray[-1] > self.kkUp
+        conditionKKSell = self.closeArray[-1] < self.kkDown
+        conditionOpenRatio = self.openRatio > self.thresholdRatio
 
-
+        # 保存信号
+        if conditionKKBuy and conditionOpenRatio:
+            self.signalBuy.append(bar.datetime)
+        elif conditionKKSell and conditionOpenRatio:
+            self.signalSell.append(bar.datetime)
 
         # 判断是否要进行交易
 
         # 当前无仓位，
         if self.pos == 0:
-            print len(self.buyCost)
-            self.svdArrayShort = getSVD(self.closeArray, self.ShapeNum, self.SVDShort)
-            self.svdArrayLong = getSVD(self.closeArray, self.ShapeNum, self.SVDLong)
-            condtionATR = self.atrValue > self.atrMa
-            conditionMABuy = (self.shortMA[-1] > self.longMA[-1]) and (self.shortMA[-2] < self.longMA[-2])
-            conditionMASell = (self.shortMA[-1] < self.longMA[-1]) and (self.shortMA[-2] > self.longMA[-2])
-            conditionOBVBuy = (self.obvArray[-2:] - self.obvArray[-3:-1]).all() >= 0
-            conditionOBVSell = (self.obvArray[-2:] - self.obvArray[-3:-1]).all() <= 0
-            conditionSVDBuy = (self.closeArray[-1] > self.svdArrayShort[-1]) and  (self.closeArray[-2] < self.svdArrayShort[-2])
-            conditionSVDSell = (self.closeArray[-1] < self.svdArrayShort[-1]) and (self.closeArray[-2] > self.svdArrayShort[-2])
-            conditionKKBuy = self.closeArray[-1] > self.kkUp
-            conditionKKSell = self.closeArray[-1] < self.kkDown
-            conditionOpenRatio = self.openRatio > 0.16
+            #print len(self.buyCost)
+            #self.svdArrayShort = getSVD(self.closeArray, self.ShapeNum, self.SVDShort)
+            #self.svdArrayLong = getSVD(self.closeArray, self.ShapeNum, self.SVDLong)
+            #condtionATR = self.atrValue > self.atrMa
+            #conditionMABuy = (self.shortMA[-1] > self.longMA[-1]) and (self.shortMA[-2] < self.longMA[-2])
+            #conditionMASell = (self.shortMA[-1] < self.longMA[-1]) and (self.shortMA[-2] > self.longMA[-2])
+            #conditionOBVBuy = (self.obvArray[-2:] - self.obvArray[-3:-1]).all() >= 0
+            #conditionOBVSell = (self.obvArray[-2:] - self.obvArray[-3:-1]).all() <= 0
+            #conditionSVDBuy = (self.closeArray[-1] > self.svdArrayShort[-1]) and  (self.closeArray[-2] < self.svdArrayShort[-2])
+            #conditionSVDSell = (self.closeArray[-1] < self.svdArrayShort[-1]) and (self.closeArray[-2] > self.svdArrayShort[-2])
+            #conditionKKBuy = self.closeArray[-1] > self.kkUp
+            #conditionKKSell = self.closeArray[-1] < self.kkDown
+            #conditionOpenRatio = self.openRatio > self.thresholdRatio
+            #conditionOpenSell = self.openRatio < -self.thresholdRatio
 
             self.intraTradeHigh = bar.high
             self.intraTradeLow = bar.low
@@ -412,7 +426,7 @@ if __name__ == '__main__':
     engine.setBacktestingMode(engine.BAR_MODE)
 
     # 设置回测用的数据起始日期
-    engine.setStartDate('20150101')
+    engine.setStartDate('20150601')
     engine.setEndDate('20170601')
 
     # 设置产品相关参数
@@ -435,4 +449,30 @@ if __name__ == '__main__':
     engine.runBacktesting()
 
     # 显示回测结果
+    print u'总买入信号数量为：%d' % len(MinuteCTA.signalBuy)
+    print u'总卖出信号数量为：%d' % len(MinuteCTA.signalSell)
     engine.showBacktestingResult()
+
+    #print MinuteCTA.signalBuy
+
+    ## 跑优化
+    ''''''
+    setting = OptimizationSetting()                 # 新建一个优化任务设置对象
+    setting.setOptimizeTarget('capital')            # 设置优化排序的目标是策略净盈利
+    setting.addParameter('kkLength', 10.0, 16.0, 1.0)    # 增加第一个优化参数kkLength，起始11，结束12，步进1
+    setting.addParameter('kkDevUp', 1.5, 2.5, 0.2)        # 增加第二个优化参数kkDevUp，起始1.5，结束2.5，步进0.1
+    setting.addParameter('kkDevDown', 1.5, 2.5, 0.2)   # 增加第三个优化参数kkDevDown，起始1.5，结束2.5，步进0.1
+    setting.addParameter('thresholdRatio',0.12,0.20,0.01)            # 增加第四个参数thresholdRatio, 起始0.12，结束0.20,步长0.01
+
+    ## 性能测试环境：I7-3770，主频3.4G, 8核心，内存16G，Windows 7 专业版
+    ## 测试时还跑着一堆其他的程序，性能仅供参考
+    import time
+    start = time.time()
+
+    ## 运行单进程优化函数，自动输出结果，耗时：359秒
+    # engine.runOptimization(AtrRsiStrategy, setting)
+
+    ## 多进程优化
+    #engine.runParallelOptimization(MinuteCTA, setting)
+
+    print u'耗时：%s' %(time.time()-start)

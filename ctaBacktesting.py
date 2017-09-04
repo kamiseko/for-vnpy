@@ -14,7 +14,9 @@ from itertools import product
 import multiprocessing
 import pymongo
 import numpy as np
+import traceback
 
+from numpy import std, array, sqrt, mean
 from vnpy.trader.vtGlobal import globalSetting
 from vnpy.trader.vtObject import VtTickData, VtBarData
 from vnpy.trader.vtConstant import *
@@ -695,6 +697,19 @@ class BacktestingEngine(object):
 
         trueTimeDelta = (365. / (self.dataEndDate - self.dataStartDate).days) if self.dataEndDate else \
                         (365. / (d['timeList'][-1] - self.dataStartDate).days)
+        minbin = 5.
+        try:
+            annualizedRet = (d['networthList'][-1]) ** trueTimeDelta - 1.
+          #  ret = (mean((array(d['networthList'])[1:] - array(d['networthList'])[:-1]) / array(d['networthList'])[:-1]))
+           # annualizedStd = std((array(d['networthList'])[1:] - array(d['networthList'])[:-1]) / array(d['networthList'])[:-1]) \
+            #                * sqrt(225.* 250./ minbin)
+            #self.output(u'时间：\t%s' % formatNumber( trueTimeDelta ))
+            #self.output(u'年化波动率分子：\t%s' % formatNumber\
+             #   (std((array(d['networthList'])[1:] - array(d['networthList'])[:-1]) / array(d['networthList'])[:-1])))
+            #self.output(u'年化波动率总分母：\t%s' % formatNumber(sqrt(225.* 250./ minbin)))
+            #sharpeRatio = ((ret + 1) ** (225.* 250./ minbin) - 1) / annualizedStd
+        except:
+            self.output(u'净值为负')
 
         # 输出
         self.output('-' * 30)
@@ -708,7 +723,8 @@ class BacktestingEngine(object):
         self.output(u'最大回撤: \t%s' % formatNumber(min(d['drawdownList'])))
         self.output(u'最大回撤百分比: \t%s' % formatNumber(min(d['drawdownpctList'])))
         try:
-            self.output(u'年化收益率：\t%s' % formatNumber((d['networthList'][-1])** trueTimeDelta -1.))
+            self.output(u'年化收益率：\t%s' % formatNumber(annualizedRet))
+            #self.output(u'夏普比率：\t%s' % formatNumber(sharpeRatio))
             self.output(u'收益回撤比: \t%s' % formatNumber(
                 ((d['networthList'][-1]) ** trueTimeDelta - 1.) / min(d['drawdownpctList'])))
         except:
@@ -876,25 +892,40 @@ class BacktestingEngine(object):
             self.output(u'优化设置有问题，请检查')
         
         # 多进程优化，启动一个对应CPU核心数量的进程池
-        pool = multiprocessing.Pool(multiprocessing.cpu_count())
+        pool = multiprocessing.Pool(multiprocessing.cpu_count()-1)
         l = []
 
         for setting in settingList:
+            #print setting
+            #temporesult = optimize(strategyClass, setting, targetName,
+             #self.mode, self.startDate, self.initDays, self.endDate,self.initcapital,
+              #                     self.slippage, self.rate, self.size, self.priceTick,
+               #                    self.dbName, self.symbol)
+            #print temporesult
             l.append(pool.apply_async(optimize, (strategyClass, setting,
                                                  targetName, self.mode, 
-                                                 self.startDate, self.initDays, self.endDate,
-                                                 self.slippage, self.rate, self.size,
+                                                 self.startDate, self.initDays, self.endDate,self.initcapital,
+                                                 self.slippage, self.rate, self.size, self.priceTick,
                                                  self.dbName, self.symbol)))
         pool.close()
         pool.join()
         
         # 显示结果
-        resultList = [res.get() for res in l]
-        resultList.sort(reverse=True, key=lambda result:result[1])
-        self.output('-' * 30)
-        self.output(u'优化结果：')
-        for result in resultList:
-            self.output(u'%s: %s' %(result[0], result[1]))    
+        try:
+            resultList = [res.get() if res.successful() else ('No-key',0) for res in l]
+            resultList.sort(reverse=True, key=lambda result: result[1])
+            print resultList
+            self.output('-' * 30)
+            self.output(u'优化结果：')
+            for result in resultList:
+                self.output(u'%s: %s' % (result[0], result[1]))
+        except Exception as e:
+            print('Caught exception in worker thread :' )
+            traceback.print_exc()
+
+            raise e
+
+
             
     #----------------------------------------------------------------------
     def roundToPriceTick(self, price):
@@ -955,7 +986,7 @@ class OptimizationSetting(object):
             return
         
         if step <= 0:
-            print u'参数布进必须大于0'
+            print u'参数步进必须大于0'
             return
         
         l = []
@@ -1000,26 +1031,29 @@ def formatNumber(n):
 
 #----------------------------------------------------------------------
 def optimize(strategyClass, setting, targetName,
-             mode, startDate, initDays, endDate,
-             slippage, rate, size,
+             mode, startDate, initDays, endDate,initcapital,
+             slippage, rate, size, pricetick,
              dbName, symbol):
     """多进程优化时跑在每个进程中运行的函数"""
     engine = BacktestingEngine()
     engine.setBacktestingMode(mode)
     engine.setStartDate(startDate, initDays)
     engine.setEndDate(endDate)
+    engine.setInitialCapital(initcapital)
     engine.setSlippage(slippage)
     engine.setRate(rate)
     engine.setSize(size)
+    engine.setPriceTick(pricetick)
     engine.setDatabase(dbName, symbol)
     
     engine.initStrategy(strategyClass, setting)
     engine.runBacktesting()
     d = engine.calculateBacktestingResult()
     try:
+        print 'Optimization successful!'
         targetValue = d[targetName]
     except KeyError:
-        targetValue = 0            
+        targetValue = 0
     return (str(setting), targetValue)    
 
 
