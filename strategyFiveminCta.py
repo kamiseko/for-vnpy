@@ -73,7 +73,7 @@ class KkRatioStrategy(CtaTemplate):
     kkDevUp = 2.1 # 计算通道宽度的偏差
     kkDevDown = 1.9  #
     trailingPrcnt = 1.2  # 移动止损, 初始值1.2
-    thresholdRatio = 0.16   # 持仓量指标阈值
+    thresholdRatio = 0.15   # 持仓量指标阈值
     fixedCutLoss = 3   # 成本固定止损, 初始值3
     initDays = 10  # 初始化数据所用的天数
     fixedSize = 1  # 每次交易的数量
@@ -83,7 +83,7 @@ class KkRatioStrategy(CtaTemplate):
     SVDShort = 5  # 计算SVD指标的短窗口数  # 8,15,20 是一组很好的参数
     SVDLong = 10  # 计算SVD指标的长窗口数
     ShapeNum = 15  # SVD矩阵的形状
-    shortMAperiod = 5
+    shortMAperiod  = 5
     longMAperiod = 12
 
     # 策略变量
@@ -98,6 +98,7 @@ class KkRatioStrategy(CtaTemplate):
     closeArray = np.zeros(bufferSize)  # K线收盘价的数组
     volumeArray = np.zeros(bufferSize)  # K线交易量
     obvArray = np.zeros(bufferSize)  # 能量潮指标
+    volumeMaArray = np.zeros(bufferSize)
     svdArrayShort = np.zeros(ShapeNum)
     svdArrayLong = np.zeros(ShapeNum)
     shortMA = np.zeros(bufferSize)
@@ -105,6 +106,7 @@ class KkRatioStrategy(CtaTemplate):
     atrArray = np.zeros(bufferSize)
     openInterestArray = np.zeros(bufferSize)
     kamaArray = np.zeros(bufferSize)
+    changePerVolumeArray = np.zeros(bufferSize)
 
     atrValue = 0  # 最新的ATR指标数值
     kkMid = 0  # KK通道中轨
@@ -223,13 +225,13 @@ class KkRatioStrategy(CtaTemplate):
                 fiveBar.high = max(fiveBar.high, bar.high)
                 fiveBar.low = min(fiveBar.low, bar.low)
                 fiveBar.close = bar.close
-                fiveBar.volume+= bar.volume
+                fiveBar.volume += bar.volume
                 fiveBar.openInterest = bar.openInterest
 
-                #print fiveBar.volume
+                # print fiveBar.volume
 
 
-                # 推送5分钟线数据
+                #  推送5分钟线数据
                 self.onFiveBar(fiveBar)
 
                 # 清空5分钟线数据缓存
@@ -309,6 +311,17 @@ class KkRatioStrategy(CtaTemplate):
         self.atrMa = talib.MA(self.atrArray,
                               self.atrMaLength)[-1]
 
+        # 量价指标
+        #self.changePerVolumeArray = np.abs(self.closeArray[1:] - self.closeArray[:-1]) / self.volumeArray[1:]
+        self.changePerVolumeArray = np.abs(self.highArray - self.lowArray) / self.volumeArray   # 最高价最低价
+
+        # 成交量均值指标
+        self.volumeMa = talib.MA(self.volumeArray, 6)[-1]
+
+
+
+
+
         self.openRatio = (self.openInterestArray[-1] - self.openInterestArray[-2]) / self.volumeArray[-1]
 
 
@@ -320,20 +333,23 @@ class KkRatioStrategy(CtaTemplate):
         #print self.openRatio
         #print self.kamaArray [-1],self.kamaArray [-2]
 
+        conditionImpulseBuy = self.changePerVolumeArray[-1] > talib.MA(self.changePerVolumeArray, 6)[-1]
+        conditionVolume = self.volumeArray[-1] > self.volumeMa   # 成交量指标
         conditionKKBuy = self.closeArray[-1] > self.kkUp
         conditionKKSell = self.closeArray[-1] < self.kkDown
         conditionOpenRatio = self.openRatio > self.thresholdRatio
-        conditionOpenRatioSell = self.openRatio < -0.16
+        conditionOpenRatioSell = self.openRatio > self.thresholdRatio + 0.015
         conditionkamabuy = (self.kamaArray[-1] >= self.kamaArray[-2] >= self.kamaArray[-3])
         conditionkamasell = (self.kamaArray[-1] <= self.kamaArray[-2] <= self.kamaArray[-3])
 
+
         #conditionOpenRatio = self.openRatioMaArray[-1] > self.openRatioMaArray[-2] and \
-         #                   self.openRatioMaArray[-1] > 0.095
+         #                  self.openRatioMaArray[-1] > 0.095
 
         # 保存信号
         if conditionKKBuy and conditionOpenRatio:
             self.signalBuy.append(bar.datetime)
-        elif conditionKKSell and conditionOpenRatio:
+        elif conditionKKSell and conditionOpenRatioSell:
             self.signalSell.append(bar.datetime)
 
         # 判断是否要进行交易
@@ -360,7 +376,7 @@ class KkRatioStrategy(CtaTemplate):
             if conditionKKBuy and conditionOpenRatio:
                 self.buy(bar.close + 5, self.fixedSize)
                 self.buyCost.append(bar.close + 5)
-            elif conditionKKSell and conditionOpenRatio:
+            elif conditionKKSell and conditionOpenRatioSell:
                 self.short(bar.close - 5, self.fixedSize)
                 self.shortCost.append(bar.close - 5)
 
@@ -369,7 +385,7 @@ class KkRatioStrategy(CtaTemplate):
             self.intraTradeHigh = max(self.intraTradeHigh, bar.high)
             self.intraTradeLow = bar.low
             if self.closeArray[-1] < (1 - self.fixedCutLoss/100) * self.buyCost[-1]:  # 固定止损
-                orderID = self.sell(bar.close-5,abs(self.pos), True)
+                orderID = self.sell(bar.close-5, abs(self.pos), True)
                 self.buycutLossList.append(orderID)
                 self.orderList.append(orderID)
             else: #self.closeArray[-1] >= self.intraTradeHigh:
@@ -383,10 +399,10 @@ class KkRatioStrategy(CtaTemplate):
             self.intraTradeHigh = bar.high
             self.intraTradeLow = min(self.intraTradeLow, bar.low)
             if self.closeArray[-1] >= (1 + self.fixedCutLoss/100) * self.shortCost[-1]: # 固定止损
-                orderID =  self.cover(bar.close+5,abs(self.pos), True)
+                orderID = self.cover(bar.close+5, abs(self.pos), True)
                 self.sellcutLossList.append(orderID)
                 self.orderList.append(orderID)
-            else: #self.closeArray[-1] <= self.intraTradeLow:
+            else:  # self.closeArray[-1] <= self.intraTradeLow:
                 orderID = self.cover(self.intraTradeLow * (1 + self.trailingPrcnt / 100),
                                      abs(self.pos), True)
                 self.sellcutProfitList.append(orderID)
