@@ -19,45 +19,7 @@ from vnpy.trader.vtObject import VtBarData
 from vnpy.trader.vtConstant import EMPTY_STRING
 from vnpy.trader.app.ctaStrategy.ctaTemplate import CtaTemplate
 
-'''
-def getNewMatrix(inputArray, t, m):
-    newMatrix = []
-    n = t-m+1
-    for i in range(n):
-        newdata = list(inputArray[i:m+i])
-        newMatrix.append(newdata)
-    #newMatrix = np.array(newMatrix).reshape(n,m)
-    return np.array(newMatrix)
 
-def recreateArray(newMatrix,t,m):
-    ret = []
-    n = t - m + 1
-    for p in range(1, t+1):
-        if p < m:
-            alpha = p
-        elif p > t-m+1:
-            alpha = t-p+1
-        else:
-            alpha = m
-        sigma = 0
-        for j in range(1, m+1):
-            i = p - j + 1
-            if i > 0 and i < n+1:
-                sigma += newMatrix[i-1][j-1]
-        ret.append(sigma/alpha)
-    return np.array(ret)
-
-def getSVD(inputArray,t,m):
-    #print 1
-    inputmatrix = getNewMatrix(inputArray, t, m)
-    u, s, v = np.linalg.svd(inputmatrix)
-    eviNum = 1 if s[0]/s.sum() > 0.99 else 2
-    sNew = np.zeros((eviNum, eviNum))
-    np.fill_diagonal(sNew, s[:eviNum])
-    matrixForts = np.dot(np.dot(u[:, :eviNum].reshape(u.shape[0], eviNum), sNew), v[:eviNum])
-    newts = recreateArray(matrixForts, t, m)
-    return newts
-'''
 
 ########################################################################
 class KkRatioStrategy(CtaTemplate):
@@ -72,6 +34,7 @@ class KkRatioStrategy(CtaTemplate):
     #preTickVolume = -100
     preBarVolume = - 100
     trueCalVolFlag = False
+    changeTime = None
 
     # 策略参数
     openRatioMaLength = 4  # 计算openRatioMA的窗口数
@@ -127,6 +90,7 @@ class KkRatioStrategy(CtaTemplate):
     openRatio = 0    # 开仓指标
     op = 0  # 持仓量
     vol = 0  # 成交量
+    monitoringVolume = 0  # 监控计算的分钟线成交量
     intraTradeHigh = 0  # 持仓期内的最高点
     intraTradeLow = 0  # 持仓期内的最低点
 
@@ -158,7 +122,6 @@ class KkRatioStrategy(CtaTemplate):
     varList = ['inited',
                'trading',
                'pos',
-               'atrValue',
                'kkMid',
                'kkUp',
                'kkDown',
@@ -166,8 +129,9 @@ class KkRatioStrategy(CtaTemplate):
                'openRatio',
                'op',
                'vol',
-               'preTickVolume',
-               'trueCalVolFlag']
+               'monitoringVolume',
+               'trueCalVolFlag',
+               'changeTime']
 
     # ----------------------------------------------------------------------
     def __init__(self, ctaEngine, setting):
@@ -240,7 +204,9 @@ class KkRatioStrategy(CtaTemplate):
             #self.preTickVolume = tick.volume  # 更新数据
             bar.volume = tick.volume - self.preBarVolume  # 每个新到tick的成交量减去此bar线成交量的初始值
             bar.openInterest = tick.openInterest
+            self.monitoringVolume = bar.volume
             self.trueCalVolFlag = True
+            self.changeTime = tick.datetime
 
     # ----------------------------------------------------------------------
     def onBar(self, bar):
