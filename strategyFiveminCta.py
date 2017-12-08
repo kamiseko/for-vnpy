@@ -37,13 +37,13 @@ class KkRatioStrategy(CtaTemplate):
     changeTime = None
 
     # 策略参数
-    openRatioMaLength = 4  # 计算openRatioMA的窗口数
+    #openRatioMaLength = 4  # 计算openRatioMA的窗口数
     #atrLength = 22  # 计算ATR指标的窗口数
     atrMaLength = 10  # 计算ATR均线的窗口数
     kkLength = 15  # 计算通道中值的窗口数
     kkDevUp = 2.1 # 计算通道宽度的偏差
     kkDevDown = 1.9  #
-    trailingPrcnt = 1.4  # 移动止损, 初始值1.2
+    trailingPrcnt = 1 # 移动止损, 最好值1.45/1.5
     thresholdRatio = 0.15   # 持仓量指标阈值
     fixedCutLoss = 2   # 成本固定止损, 初始值3
     initDays = 10  # 初始化数据所用的天数
@@ -93,6 +93,8 @@ class KkRatioStrategy(CtaTemplate):
     monitoringVolume = 0  # 监控计算的分钟线成交量
     intraTradeHigh = 0  # 持仓期内的最高点
     intraTradeLow = 0  # 持仓期内的最低点
+    longStop = 0  # 多头的移动止损点位
+    shortStop = 0  # 空头的移动止损点位
 
     buyOrderID = None  # OCO委托买入开仓的委托号
     shortOrderID = None  # OCO委托卖出开仓的委托号
@@ -130,8 +132,8 @@ class KkRatioStrategy(CtaTemplate):
                'op',
                'vol',
                'monitoringVolume',
-               'trueCalVolFlag',
-               'changeTime']
+               'longStop',
+               'shortStop']
 
     # ----------------------------------------------------------------------
     def __init__(self, ctaEngine, setting):
@@ -206,7 +208,7 @@ class KkRatioStrategy(CtaTemplate):
             bar.openInterest = tick.openInterest
             self.monitoringVolume = bar.volume
             self.trueCalVolFlag = True
-            self.changeTime = tick.datetime
+            #self.changeTime = tick.datetime
 
     # ----------------------------------------------------------------------
     def onBar(self, bar):
@@ -377,7 +379,7 @@ class KkRatioStrategy(CtaTemplate):
         #conditionkamabuy = (self.kamaArray[-1] >= self.kamaArray[-2] >= self.kamaArray[-3])
         #conditionkamasell = (self.kamaArray[-1] <= self.kamaArray[-2] <= self.kamaArray[-3])
 
-        conditionOpenRatioModiBuy = self.openRatioModi > 0.022
+        conditionOpenRatioModiBuy = self.openRatioModi > 0.023
         conditionOpenRatioModiSell= self.openRatioModi > 0.026
 
 
@@ -385,29 +387,15 @@ class KkRatioStrategy(CtaTemplate):
          #                  self.openRatioMaArray[-1] > 0.095
 
         # 保存信号
-        if conditionKKBuy and conditionOpenRatioModiBuy :
-            self.signalBuy.append(bar.datetime)
-        elif conditionKKSell and conditionOpenRatioModiSell:
-            self.signalSell.append(bar.datetime)
+        #if conditionKKBuy and conditionOpenRatioModiBuy :
+         #   self.signalBuy.append(bar.datetime)
+        #elif conditionKKSell and conditionOpenRatioModiSell:
+         #   self.signalSell.append(bar.datetime)
 
         # 判断是否要进行交易
 
         # 当前无仓位，
         if self.pos == 0:
-            #print len(self.buyCost)
-            #self.svdArrayShort = getSVD(self.closeArray, self.ShapeNum, self.SVDShort)
-            #self.svdArrayLong = getSVD(self.closeArray, self.ShapeNum, self.SVDLong)
-            #condtionATR = self.atrValue > self.atrMa
-            #conditionMABuy = (self.shortMA[-1] > self.longMA[-1]) and (self.shortMA[-2] < self.longMA[-2])
-            #conditionMASell = (self.shortMA[-1] < self.longMA[-1]) and (self.shortMA[-2] > self.longMA[-2])
-            #conditionOBVBuy = (self.obvArray[-2:] - self.obvArray[-3:-1]).all() >= 0
-            #conditionOBVSell = (self.obvArray[-2:] - self.obvArray[-3:-1]).all() <= 0
-            #conditionSVDBuy = (self.closeArray[-1] > self.svdArrayShort[-1]) and  (self.closeArray[-2] < self.svdArrayShort[-2])
-            #conditionSVDSell = (self.closeArray[-1] < self.svdArrayShort[-1]) and (self.closeArray[-2] > self.svdArrayShort[-2])
-            #conditionKKBuy = self.closeArray[-1] > self.kkUp
-            #conditionKKSell = self.closeArray[-1] < self.kkDown
-            #conditionOpenRatio = self.openRatio > self.thresholdRatio
-            #conditionOpenSell = self.openRatio < -self.thresholdRatio
 
             self.intraTradeHigh = bar.high
             self.intraTradeLow = bar.low
@@ -426,8 +414,9 @@ class KkRatioStrategy(CtaTemplate):
                 orderID = self.sell(bar.close-5, abs(self.pos), stop=True)
                 self.buycutLossList.append(orderID)
                 self.orderList.append(orderID)
-            else: #self.closeArray[-1] >= self.intraTradeHigh:
-                orderID = self.sell(self.intraTradeHigh * (1 - self.trailingPrcnt / 100),
+            else:
+                self.longStop = self.intraTradeHigh * (1 - self.trailingPrcnt / 100)
+                orderID = self.sell(self.longStop,
                                 abs(self.pos), stop=True)
                 self.buycutProfitList.append(orderID)
                 self.orderList.append(orderID)
@@ -440,8 +429,9 @@ class KkRatioStrategy(CtaTemplate):
                 orderID = self.cover(bar.close+5, abs(self.pos), stop=True)
                 self.sellcutLossList.append(orderID)
                 self.orderList.append(orderID)
-            else:  # self.closeArray[-1] <= self.intraTradeLow:
-                orderID = self.cover(self.intraTradeLow * (1 + self.trailingPrcnt / 100),
+            else:
+                self.shortStop = self.intraTradeLow * (1 + self.trailingPrcnt / 100)
+                orderID = self.cover(self.shortStop,
                                      abs(self.pos), stop=True)
                 self.sellcutProfitList.append(orderID)
                 self.orderList.append(orderID)
@@ -508,7 +498,7 @@ if __name__ == '__main__':
     engine.setBacktestingMode(engine.BAR_MODE)
 
     # 设置回测用的数据起始日期
-    engine.setStartDate('20150601')
+    engine.setStartDate('20160601')
     engine.setEndDate('20170601')
 
     # 设置产品相关参数
@@ -519,9 +509,10 @@ if __name__ == '__main__':
     engine.setSize(10)  # 股指合约大小
     engine.setPriceTick(1)  # 股指最小价格变动 0.2
     engine.setpnlPctToggle(True)  # 百分比显示开关
+    #engine.writeTrade = True
     # 设置使用的历史数据库
-    engine.setDatabase('FutureData_Index', 'rb000_1min_modi')
-
+    #engine.setDatabase('FutureData_Index', 'rb000_1min_modi')
+    engine.setDatabase('FutureData_Sequence', 'rb888_1min_modi')
     # 在引擎中创建策略对象
     d = {}
     engine.initStrategy(KkRatioStrategy, d)
