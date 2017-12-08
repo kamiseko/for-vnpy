@@ -15,6 +15,7 @@ import multiprocessing
 import pymongo
 import numpy as np
 import traceback
+import pandas as pd
 
 from numpy import std, array, sqrt, mean
 from vnpy.trader.vtGlobal import globalSetting
@@ -96,6 +97,12 @@ class BacktestingEngine(object):
         self.tick = None
         self.bar = None
         self.dt = None      # 最新的时间
+
+        # 是否打印成交
+        self.writeTrade = False
+
+        # 存储分析文件的path
+        self.savepath = 'C:/Users/LZJF_02/Desktop/BacktestRA/'
         
     #----------------------------------------------------------------------
     def setStartDate(self, startDate='20100416', initDays=10):
@@ -127,6 +134,13 @@ class BacktestingEngine(object):
         """设置历史数据所用的数据库"""
         self.dbName = dbName
         self.symbol = symbol
+
+    #----------------------------------------------------------------------
+    def setSavePath(self,savepath):
+        """设置存储分析结果的路径"""
+        self.savepath = savepath
+
+
     
     #----------------------------------------------------------------------
     def loadHistoryData(self):
@@ -147,8 +161,9 @@ class BacktestingEngine(object):
         # 载入初始化需要用的数据
         flt = {'datetime':{'$gte':self.dataStartDate,
                            '$lt':self.strategyStartDate}}        
-        initCursor = collection.find(flt)
-        
+        #initCursor = collection.find(flt)
+        initCursor = collection.find(flt).sort("_id",1)
+
         # 将数据从查询指针中读取出，并生成列表
         self.initData = []              # 清空initData列表
         for d in initCursor:
@@ -162,7 +177,7 @@ class BacktestingEngine(object):
         else:
             flt = {'datetime':{'$gte':self.strategyStartDate,
                                '$lte':self.dataEndDate}}  
-        self.dbCursor = collection.find(flt)
+        self.dbCursor = collection.find(flt).sort('datetime')
         
         self.output(u'载入完成，数据量：%s' %(initCursor.count() + self.dbCursor.count()))
         
@@ -269,6 +284,7 @@ class BacktestingEngine(object):
             order.status = STATUS_CANCELLED
             order.cancelTime = str(self.dt)
             del self.workingLimitOrderDict[vtOrderID]
+            self.strategy.onOrder(order)
         
     #----------------------------------------------------------------------
     def sendStopOrder(self, vtSymbol, orderType, price, volume, strategy):
@@ -311,6 +327,7 @@ class BacktestingEngine(object):
             so = self.workingStopOrderDict[stopOrderID]
             so.status = STOPORDER_CANCELLED
             del self.workingStopOrderDict[stopOrderID]
+            self.strategy.onOrder(so)
             
     #----------------------------------------------------------------------
     def crossLimitOrder(self):
@@ -687,7 +704,13 @@ class BacktestingEngine(object):
         d['networthList'] = networthList
         d['longPnl'] = longPnl
         d['shortPnl'] = shortPnl
-        
+        d['longTradeCount'] = len(longTradeList)
+        d['shortTradeCount'] = len(shortTradeList)
+
+        if (self.writeTrade):  # 开启记录交易详细情况
+            print 'Save trading data!'
+            self.output_csv(resultList)
+
         return d
         
     #----------------------------------------------------------------------
@@ -717,6 +740,8 @@ class BacktestingEngine(object):
         self.output(u'最后一笔交易：\t%s' % d['timeList'][-1])
         
         self.output(u'总交易次数：\t%s' % formatNumber(d['totalResult']))
+        self.output(u'多头交易次数：\t%s' % formatNumber(d['longTradeCount']))
+        self.output(u'空头交易次数：\t%s' % formatNumber(d['shortTradeCount']))
         self.output(u'期末净值：\t%s' % formatNumber(d['networthList'][-1]))
         self.output(u'总盈亏：\t%s' % formatNumber(d['capital'] - self.initcapital))
 
@@ -935,7 +960,25 @@ class BacktestingEngine(object):
         
         newPrice = round(price/self.priceTick, 0) * self.priceTick
         return newPrice
-    
+
+    # ----------------------------------------------------------------------
+    def output_csv(self, recordList):
+        """记录交易记录"""
+
+        filecolumns = ['entryPrice', 'exitPrice', 'entryDt', 'exitDt', 'volume', 'turnover',
+                       'commission', 'slippage', 'pnl']
+
+        totalList = []
+        for i in recordList:
+            recordItem = [i.entryPrice, i.exitPrice, i.entryDt, i.exitDt, i.volume, i.turnover, i.commission, i.slippage,
+                 i.pnl]
+            totalList.append(recordItem)
+        df = pd.DataFrame(data=totalList,columns=filecolumns, dtype=float)
+        df.to_csv(self.savepath+self.strategy.name + self.startDate + '-' + self.endDate +
+                  '.' + 'csv',na_rep='NaN',date_format='%Y%m%d',index=False)
+
+
+
         
 
 ########################################################################
@@ -1025,7 +1068,7 @@ class OptimizationSetting(object):
 #----------------------------------------------------------------------
 def formatNumber(n):
     """格式化数字到字符串"""
-    rn = round(n, 2)        # 保留两位小数
+    rn = round(n, 3)        # 保留两位小数
     return format(rn, ',')  # 加上千分符
     
 
@@ -1128,6 +1171,17 @@ if __name__ == '__main__':
     # 设置使用的历史数据库
     engine.setDatabase('Data', 'RB000')
 
+    # 设置产品相关参数  热卷1分钟
+    engine.setInitialCapital(100000)  # 初始资金10w
+    engine.setLeverage(1)  # 2倍杠杆
+    engine.setSlippage(1)  # 股指1跳
+    engine.setRate(3 / 10000)  # 万0.3
+    engine.setSize(10)  # 股指合约大小
+    engine.setPriceTick(2)  # 股指最小价格变动 0.2
+    engine.setpnlPctToggle(True)  # 百分比显示开关
+    # 设置使用的历史数据库
+    engine.setDatabase('FutureData_Index', 'hc000_1min_modi')
+
 
     # 设置使用的历史数据库 塑料1分钟
     engine.setInitialCapital(100000)  # 初始资金10w
@@ -1146,10 +1200,19 @@ if __name__ == '__main__':
     engine.setSlippage(0.5)  # 1跳
     engine.setRate(0.3 / 10000)  # 万0.3
     engine.setSize(100)  # 股指合约大小
-    engine.setPriceTick(0.5)  # 股指最小价格变动 0.2
+    engine.setPriceTick(1)  # 股指最小价格变动 0.2
     engine.setpnlPctToggle(True)  # 百分比显示开关
     engine.setDatabase('Data', 'J9000_1min')
 
+    # 设置使用的历史数据库 焦煤1分钟
+    engine.setInitialCapital(100000)  # 初始资金10w
+    engine.setLeverage(1)  # 2倍杠杆
+    engine.setSlippage(1)  # 1跳
+    engine.setRate(3 / 10000)  # 万0.3
+    engine.setSize(60)  # 股指合约大小
+    engine.setPriceTick(0.5)  # 股指最小价格变动 0.2
+    engine.setpnlPctToggle(True)  # 百分比显示开关
+    engine.setDatabase('FutureData_Index', 'jm9000_1min_modi')
 
     # 设置使用的历史数据库 黄金1分钟
     engine.setInitialCapital(100000)  # 初始资金10w
