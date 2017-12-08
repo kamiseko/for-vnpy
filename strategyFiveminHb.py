@@ -22,9 +22,9 @@ from vnpy.trader.app.ctaStrategy.ctaTemplate import CtaTemplate
 
 
 ########################################################################
-class KkRatioStrategy(CtaTemplate):
-    """基于King Keltner通道的交易策略"""
-    className = 'KkRatioStrategy'
+class MultiCycleStrategy(CtaTemplate):
+    """多周期策略"""
+    className = 'MultiCycleStrategy'
     author = u'toriphy'
 
     # global preBarOpenInterest
@@ -43,7 +43,7 @@ class KkRatioStrategy(CtaTemplate):
     kkLength = 15  # 计算通道中值的窗口数
     kkDevUp = 2.1 # 计算通道宽度的偏差
     kkDevDown = 1.9  #
-    trailingPrcnt = 1.4  # 移动止损, 初始值1.2
+    trailingPrcnt = 1.1  # 移动止损, 初始值1.2
     thresholdRatio = 0.15   # 持仓量指标阈值
     fixedCutLoss = 2   # 成本固定止损, 初始值3
     initDays = 10  # 初始化数据所用的天数
@@ -55,7 +55,7 @@ class KkRatioStrategy(CtaTemplate):
     SVDShort = 5  # 计算SVD指标的短窗口数  # 8,15,20 是一组很好的参数
     SVDLong = 10  # 计算SVD指标的长窗口数
     ShapeNum = 15  # SVD矩阵的形状
-    shortMAperiod  = 5
+    shortMAperiod  = 6
     longMAperiod = 12
 
     # 策略变量
@@ -65,7 +65,7 @@ class KkRatioStrategy(CtaTemplate):
     longCycleBar = None # 长周期bar
 
     bufferSize = 100  # 需要缓存的数据的大小
-    longCycleBufferSize = 20 # 长周期需要缓存的数据大小
+    longCycleBufferSize = 30 # 长周期需要缓存的数据大小
     bufferCount = 0  # 目前已经缓存了的数据的计数
     longCycleBufferCount = 0  # 长周期目前已经缓存了的数据的计数
 
@@ -84,6 +84,8 @@ class KkRatioStrategy(CtaTemplate):
     longCycleLowArray = np.zeros(longCycleBufferSize)  # 长周期K线组收盘价
     longCycleCloseArray = np.zeros(longCycleBufferSize)  # 长周期K线组收盘价
     longCycleVolumeArray = np.zeros(longCycleBufferSize)  #  长周期K线组收盘价
+
+    MACD = np.zeros(longCycleBufferSize)  # MACD数组
 
     #shortMA = np.zeros(bufferSize)
     #longMA = np.zeros(bufferSize)
@@ -150,7 +152,7 @@ class KkRatioStrategy(CtaTemplate):
     # ----------------------------------------------------------------------
     def __init__(self, ctaEngine, setting):
         """Constructor"""
-        super(KkRatioStrategy, self).__init__(ctaEngine, setting)
+        super(MultiCycleStrategy, self).__init__(ctaEngine, setting)
 
     # ----------------------------------------------------------------------
     def onInit(self):
@@ -227,6 +229,7 @@ class KkRatioStrategy(CtaTemplate):
         """收到Bar推送（必须由用户继承实现）"""
         # 如果当前是一个5分钟走完
         if (bar.datetime.minute+1) % self.barBin == 0:
+
             # 如果已经有聚合5分钟K线
             if self.fiveBar:
                 # 将最新分钟的数据更新到目前5分钟线中
@@ -305,7 +308,7 @@ class KkRatioStrategy(CtaTemplate):
         #print bar.openInterestList
         #print bar.datetime.minute
         # 如果当前是一个15分钟走完
-        if (bar.datetime.minute ) % self.barLongBin == 0:
+        if (bar.datetime.minute + 1 * self.barBin) % self.barLongBin == 0:
             # 如果已经有聚合5分钟K线
             if self.longCycleBar:
                 # 将最新分钟的数据更新到目前5分钟线中
@@ -480,6 +483,7 @@ class KkRatioStrategy(CtaTemplate):
             if conditionKKBuy and conditionOpenRatioModiBuy and self.longCycleEnablFlag:
                 self.buy(bar.close + 5, self.fixedSize)
                 self.buyCost.append(bar.close + 5)
+
             elif conditionKKSell and conditionOpenRatioModiSell and not self.longCycleEnablFlag:
                 self.short(bar.close - 5, self.fixedSize)
                 self.shortCost.append(bar.close - 5)
@@ -496,6 +500,7 @@ class KkRatioStrategy(CtaTemplate):
                 orderID = self.sell(self.intraTradeHigh * (1 - self.trailingPrcnt / 100),
                                 abs(self.pos), stop=True)
                 self.buycutProfitList.append(orderID)
+                self.writeCtaLog(u'多头止损价格：' + str(self.intraTradeHigh * (1 - self.trailingPrcnt / 100)))
                 self.orderList.append(orderID)
 
         # 持有空头仓位
@@ -510,6 +515,7 @@ class KkRatioStrategy(CtaTemplate):
                 orderID = self.cover(self.intraTradeLow * (1 + self.trailingPrcnt / 100),
                                      abs(self.pos), stop=True)
                 self.sellcutProfitList.append(orderID)
+                self.writeCtaLog(u'空头头止损价格：' + str(self.intraTradeHigh * (1 + self.trailingPrcnt / 100)))
                 self.orderList.append(orderID)
 
         # 发出状态更新事件
@@ -518,6 +524,8 @@ class KkRatioStrategy(CtaTemplate):
     # ----------------------------------------------------------------------
     def onLongCycle(self,bar):
 
+        print 'cycletime:', bar.datetime
+        #print bar.datetime
         self.longCycleCloseArray[0:self.longCycleBufferSize - 1] = self.longCycleCloseArray[1:self.longCycleBufferSize]
         self.longCycleHighArray[0:self.longCycleBufferSize - 1] = self.longCycleHighArray[1:self.longCycleBufferSize]
         self.longCycleLowArray[0:self.longCycleBufferSize - 1] = self.longCycleLowArray[1:self.longCycleBufferSize]
@@ -535,7 +543,12 @@ class KkRatioStrategy(CtaTemplate):
         self.longCycleMAlong = talib.MA(self.longCycleCloseArray, self.longMAperiod)
         self.longCycleMAshort = talib.MA(self.longCycleCloseArray, self.shortMAperiod)
 
-        if self.longCycleMAshort[-1] >  self.longCycleMAlong[-1]:
+        maLongCondition = self.longCycleMAshort[-1] >  self.longCycleMAlong[-1]
+        self.MACD = talib.MACD(self.longCycleCloseArray,fastperiod=self.shortMAperiod,slowperiod=self.longMAperiod,signalperiod=9)
+        #print self.MACD[-1]
+        MACDLongCondition = self.MACD[0][-1] > self.MACD[-1][-1]
+        if maLongCondition:
+            #print 'MACD LONG Signal Triggered'
             self.longCycleEnablFlag =  True
         else:
             self.longCycleEnablFlag = False
@@ -598,8 +611,8 @@ if __name__ == '__main__':
     engine.setBacktestingMode(engine.BAR_MODE)
 
     # 设置回测用的数据起始日期
-    engine.setStartDate('20130601')
-    engine.setEndDate('20150601')
+    engine.setStartDate('20170601')
+    engine.setEndDate('20171201')
 
     # 设置产品相关参数
     engine.setInitialCapital(20000)  # 初始资金10w
@@ -609,23 +622,39 @@ if __name__ == '__main__':
     engine.setSize(10)  # 股指合约大小
     engine.setPriceTick(1)  # 股指最小价格变动 0.2
     engine.setpnlPctToggle(True)  # 百分比显示开关
+    engine.writeTrade = True
     # 设置使用的历史数据库
     #engine.setDatabase('FutureData_Index', 'rb000_1min_modi')
     engine.setDatabase('FutureData_Sequence', 'rb888_1min_modi')
+
+
+    '''
+    # 设置使用的历史数据库 焦煤1分钟
+    engine.setInitialCapital(100000)  # 初始资金10w
+    engine.setLeverage(1)  # 2倍杠杆
+    engine.setSlippage(1)  # 1跳
+    engine.setRate(3 / 10000)  # 万0.3
+    engine.setSize(100)  # 股指合约大小
+    engine.setPriceTick(0.5)  # 股指最小价格变动 0.2
+    engine.setpnlPctToggle(True)  # 百分比显示开关
+    engine.setDatabase('FutureData_Sequence', 'i9888_1min_modi')
+    '''
+
+
     # 在引擎中创建策略对象
     d = {}
-    engine.initStrategy(KkRatioStrategy, d)
+    engine.initStrategy(MultiCycleStrategy, d)
 
     # 开始跑回测
     engine.runBacktesting()
 
     # 显示回测结果
-    print u'多仓信号数量为：%d' % len(KkRatioStrategy.signalBuy)
-    print u'空仓信号数量为：%d' % len(KkRatioStrategy.signalSell)
-    print u'多仓止盈数量为：%d' % len(KkRatioStrategy.buycutProfitList)
-    print u'多仓止损数量为：%d' % len(KkRatioStrategy.buycutLossList)
-    print u'空仓止盈数量为：%d' % len(KkRatioStrategy.sellcutProfitList)
-    print u'空仓止损数量为：%d' % len(KkRatioStrategy.sellcutLossList)
+    print u'多仓信号数量为：%d' % len(MultiCycleStrategy.signalBuy)
+    print u'空仓信号数量为：%d' % len(MultiCycleStrategy.signalSell)
+    print u'多仓止盈数量为：%d' % len(MultiCycleStrategy.buycutProfitList)
+    print u'多仓止损数量为：%d' % len(MultiCycleStrategy.buycutLossList)
+    print u'空仓止盈数量为：%d' % len(MultiCycleStrategy.sellcutProfitList)
+    print u'空仓止损数量为：%d' % len(MultiCycleStrategy.sellcutLossList)
 
     engine.showBacktestingResult()
 
