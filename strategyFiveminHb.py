@@ -41,9 +41,9 @@ class MultiCycleStrategy(CtaTemplate):
     #atrLength = 22  # 计算ATR指标的窗口数
     atrMaLength = 10  # 计算ATR均线的窗口数
     kkLength = 15  # 计算通道中值的窗口数
-    kkDevUp = 2.1 # 计算通道宽度的偏差
-    kkDevDown = 1.9  #
-    trailingPrcnt = 1.1  # 移动止损, 初始值1.2
+    kkDevUp = 2.2 # 计算通道宽度的偏差 取2.1或者2.2比较好
+    kkDevDown = 1.9  # 初始值1.9
+    trailingPrcnt = 1.1 # 移动止损, 初始值1.2
     thresholdRatio = 0.15   # 持仓量指标阈值
     fixedCutLoss = 2   # 成本固定止损, 初始值3
     initDays = 10  # 初始化数据所用的天数
@@ -446,7 +446,7 @@ class MultiCycleStrategy(CtaTemplate):
         #conditionkamasell = (self.kamaArray[-1] <= self.kamaArray[-2] <= self.kamaArray[-3])
 
         conditionOpenRatioModiBuy = self.openRatioModi > 0.022
-        conditionOpenRatioModiSell= self.openRatioModi > 0.026
+        conditionOpenRatioModiSell= self.openRatioModi > 0.026  # 最好0.026
 
 
         #conditionOpenRatio = self.openRatioMaArray[-1] > self.openRatioMaArray[-2] and \
@@ -622,7 +622,7 @@ if __name__ == '__main__':
     engine.setSize(10)  # 股指合约大小
     engine.setPriceTick(1)  # 股指最小价格变动 0.2
     engine.setpnlPctToggle(True)  # 百分比显示开关
-    engine.writeTrade = True
+    #engine.writeTrade = True
     # 设置使用的历史数据库
     #engine.setDatabase('FutureData_Index', 'rb000_1min_modi')
     engine.setDatabase('FutureData_Sequence', 'rb888_1min_modi')

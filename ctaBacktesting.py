@@ -531,7 +531,7 @@ class BacktestingEngine(object):
                                                exitTrade.price, exitTrade.dt,
                                                -closedVolume, self.rate, self.slippage, self.size)
                         resultList.append(result)
-                        longTradeList.append(result.pnl * self.leverage)   # 加入多头交易
+                        shortTradeList.append(result.pnl * self.leverage)   # 加入多头交易
 
                         posList.extend([-1,0])
                         tradeTimeList.extend([result.entryDt, result.exitDt])
@@ -577,7 +577,7 @@ class BacktestingEngine(object):
                                                closedVolume, self.rate, self.slippage, self.size)
                         resultList.append(result)
 
-                        shortTradeList.append(result.pnl * self.leverage)  # 加入空头交易
+                        longTradeList.append(result.pnl * self.leverage)  # 加入空头交易
                         
                         posList.extend([1,0])
                         tradeTimeList.extend([result.entryDt, result.exitDt])
