@@ -16,7 +16,9 @@ import talib
 import numpy as np
 
 from vnpy.trader.vtObject import VtBarData
-from vnpy.trader.vtConstant import EMPTY_STRING
+from vnpy.trader.vtConstant import EMPTY_STRING,STATUS_NOTTRADED,STATUS_PARTTRADED,\
+    STATUS_ALLTRADED,STATUS_CANCELLED,STATUS_REJECTED
+
 from vnpy.trader.app.ctaStrategy.ctaTemplate import CtaTemplate
 
 
@@ -32,9 +34,8 @@ class MultiCycleStrategy(CtaTemplate):
 
     # 记录初始成交量
     #preTickVolume = -100
-    preBarVolume = - 100
+    preBarVolume = 0
     trueCalVolFlag = False
-    changeTime = None
 
     # 策略参数
     openRatioMaLength = 4  # 计算openRatioMA的窗口数
@@ -46,7 +47,7 @@ class MultiCycleStrategy(CtaTemplate):
     trailingPrcnt = 1.1 # 移动止损, 初始值1.2
     thresholdRatio = 0.15   # 持仓量指标阈值
     fixedCutLoss = 2   # 成本固定止损, 初始值3
-    initDays = 10  # 初始化数据所用的天数
+    initDays = 10  # 初始化数据所用的天数,注意这个值是天数而不是bar的个数
     fixedSize = 1  # 每次交易的数量
     barBin = 5  # 五分钟线 短周期
     barLongBin = 15  # 十五分钟线，长周期
@@ -58,18 +59,19 @@ class MultiCycleStrategy(CtaTemplate):
     shortMAperiod  = 6
     longMAperiod = 12
 
+
     # 策略变量
     bar = None  # 1分钟K线对象
     barMinute = EMPTY_STRING  # K线当前的分钟
     fiveBar = None  # 5分钟K线对象
     longCycleBar = None # 长周期bar
 
-    bufferSize = 100  # 需要缓存的数据的大小
-    longCycleBufferSize = 30 # 长周期需要缓存的数据大小
+    bufferSize = 100  # 需要缓存的数据的大小 65
+    longCycleBufferSize = 30 # 长周期需要缓存的数据大小 20
     bufferCount = 0  # 目前已经缓存了的数据的计数
     longCycleBufferCount = 0  # 长周期目前已经缓存了的数据的计数
 
-    longCycleEnablFlag = False  # 长周期判断趋势
+    longCycleTradingFlag = 0  # 长周期判断趋势,初始为0
 
     # 短周期K线组
     highArray = np.zeros(bufferSize)  # K线最高价的数组
@@ -104,11 +106,13 @@ class MultiCycleStrategy(CtaTemplate):
     kkDown = 0  # KK通道下轨
     openRatioModi = 0 # 开仓指标调整
     openRatio = 0    # 开仓指标
-    op = 0  # 持仓量
-    vol = 0  # 成交量
     monitoringVolume = 0  # 监控计算的分钟线成交量
     intraTradeHigh = 0  # 持仓期内的最高点
     intraTradeLow = 0  # 持仓期内的最低点
+    longStop = 0  # 多头的移动止损点位
+    shortStop = 0  # 空头的移动止损点位
+
+
 
     buyOrderID = None  # OCO委托买入开仓的委托号
     shortOrderID = None  # OCO委托卖出开仓的委托号
@@ -118,10 +122,9 @@ class MultiCycleStrategy(CtaTemplate):
     signalBuy = []   # 统计买入信号
     signalSell = []   # 统计卖出信号
 
-    buycutLossList = []
     buycutProfitList = []
-    sellcutLossList = []
     sellcutProfitList= []
+
     # 参数列表，保存了参数的名称
     paramList = ['name',
                  'className',
@@ -142,12 +145,10 @@ class MultiCycleStrategy(CtaTemplate):
                'kkUp',
                'kkDown',
                'openRatioModi',
-               'openRatio',
-               'op',
-               'vol',
                'monitoringVolume',
-               'trueCalVolFlag',
-               'changeTime']
+               'longStop',
+               'shortStop',
+               'longCycleTradingFlag']
 
     # ----------------------------------------------------------------------
     def __init__(self, ctaEngine, setting):
@@ -222,7 +223,6 @@ class MultiCycleStrategy(CtaTemplate):
             bar.openInterest = tick.openInterest
             self.monitoringVolume = bar.volume
             self.trueCalVolFlag = True
-            self.changeTime = tick.datetime
 
     # ----------------------------------------------------------------------
     def onBar(self, bar):
@@ -363,6 +363,7 @@ class MultiCycleStrategy(CtaTemplate):
         #print 'Volume Array:', vArray1min, '\n', 'OpenInterestArray:', oArray1min,'\n','OpenRatioMOdi:',barOpenRatioModi
 
 
+        print 'Long cycle:',self.longCycleTradingFlag
         self.orderList = []
 
         # 保存K线数据
@@ -404,8 +405,7 @@ class MultiCycleStrategy(CtaTemplate):
         self.atrMa = talib.MA(self.atrArray,
                               self.atrMaLength)[-1]
 
-        self.op = self.openInterestArray[-1]  # 持仓量监控
-        self.vol = self.volumeArray[-1]  # 成交量监控
+
         #print self.vol
         # 量价指标
         #self.changePerVolumeArray = np.abs(self.closeArray[1:] - self.closeArray[:-1]) / self.volumeArray[1:]
@@ -431,6 +431,11 @@ class MultiCycleStrategy(CtaTemplate):
         #self.kamaArray = talib.KAMA(self.closeArray, timeperiod=30)
         #print self.openRatio
         #print self.kamaArray [-1],self.kamaArray [-2]
+
+
+
+        #kdjLongCondition = slowk[-1] > slowd[-1] and slowk[-2] < slowd[-2]
+        #kdjShortCondition = slowk[-1] < slowd[-1] and  slowk[-2] > slowd[-2]
 
         conditionKKBuy = self.closeArray[-1] > self.kkUp
         conditionKKSell = self.closeArray[-1] < self.kkDown
@@ -466,25 +471,15 @@ class MultiCycleStrategy(CtaTemplate):
             #print len(self.buyCost)
             #self.svdArrayShort = getSVD(self.closeArray, self.ShapeNum, self.SVDShort)
             #self.svdArrayLong = getSVD(self.closeArray, self.ShapeNum, self.SVDLong)
-            #condtionATR = self.atrValue > self.atrMa
-            #conditionMABuy = (self.shortMA[-1] > self.longMA[-1]) and (self.shortMA[-2] < self.longMA[-2])
-            #conditionMASell = (self.shortMA[-1] < self.longMA[-1]) and (self.shortMA[-2] > self.longMA[-2])
-            #conditionOBVBuy = (self.obvArray[-2:] - self.obvArray[-3:-1]).all() >= 0
-            #conditionOBVSell = (self.obvArray[-2:] - self.obvArray[-3:-1]).all() <= 0
-            #conditionSVDBuy = (self.closeArray[-1] > self.svdArrayShort[-1]) and  (self.closeArray[-2] < self.svdArrayShort[-2])
-            #conditionSVDSell = (self.closeArray[-1] < self.svdArrayShort[-1]) and (self.closeArray[-2] > self.svdArrayShort[-2])
-            #conditionKKBuy = self.closeArray[-1] > self.kkUp
-            #conditionKKSell = self.closeArray[-1] < self.kkDown
-            #conditionOpenRatio = self.openRatio > self.thresholdRatio
-            #conditionOpenSell = self.openRatio < -self.thresholdRatio
+
 
             self.intraTradeHigh = bar.high
             self.intraTradeLow = bar.low
-            if conditionKKBuy and conditionOpenRatioModiBuy and self.longCycleEnablFlag:
+            if conditionKKBuy and conditionOpenRatioModiBuy and self.longCycleTradingFlag == 1:
                 self.buy(bar.close + 5, self.fixedSize)
                 self.buyCost.append(bar.close + 5)
 
-            elif conditionKKSell and conditionOpenRatioModiSell and not self.longCycleEnablFlag:
+            elif conditionKKSell and conditionOpenRatioModiSell and self.longCycleTradingFlag == -1:
                 self.short(bar.close - 5, self.fixedSize)
                 self.shortCost.append(bar.close - 5)
 
@@ -492,31 +487,25 @@ class MultiCycleStrategy(CtaTemplate):
         elif self.pos > 0:
             self.intraTradeHigh = max(self.intraTradeHigh, bar.high)
             self.intraTradeLow = bar.low
-            if self.closeArray[-1] < (1 - self.fixedCutLoss/100) * self.buyCost[-1]:  # 固定止损
-                orderID = self.sell(bar.close-5, abs(self.pos), stop=True)
-                self.buycutLossList.append(orderID)
-                self.orderList.append(orderID)
-            else: #self.closeArray[-1] >= self.intraTradeHigh:
-                orderID = self.sell(self.intraTradeHigh * (1 - self.trailingPrcnt / 100),
-                                abs(self.pos), stop=True)
-                self.buycutProfitList.append(orderID)
-                self.writeCtaLog(u'多头止损价格：' + str(self.intraTradeHigh * (1 - self.trailingPrcnt / 100)))
-                self.orderList.append(orderID)
+
+            self.longStop = self.intraTradeHigh * (1 - self.trailingPrcnt / 100)
+            orderID = self.sell(self.longStop,
+                            abs(self.pos), stop=True)
+            self.buycutProfitList.append(orderID)
+            self.writeCtaLog(u'多头止损价格：' + str(self.longStop))
+            self.orderList.append(orderID)
 
         # 持有空头仓位
         elif self.pos < 0:
             self.intraTradeHigh = bar.high
             self.intraTradeLow = min(self.intraTradeLow, bar.low)
-            if self.closeArray[-1] >= (1 + self.fixedCutLoss/100) * self.shortCost[-1]: # 固定止损
-                orderID = self.cover(bar.close+5, abs(self.pos), stop=True)
-                self.sellcutLossList.append(orderID)
-                self.orderList.append(orderID)
-            else:  # self.closeArray[-1] <= self.intraTradeLow:
-                orderID = self.cover(self.intraTradeLow * (1 + self.trailingPrcnt / 100),
-                                     abs(self.pos), stop=True)
-                self.sellcutProfitList.append(orderID)
-                self.writeCtaLog(u'空头头止损价格：' + str(self.intraTradeHigh * (1 + self.trailingPrcnt / 100)))
-                self.orderList.append(orderID)
+
+            self.shortStop = self.intraTradeLow * (1 + self.trailingPrcnt / 100)
+            orderID = self.cover(self.shortStop,
+                                 abs(self.pos), stop=True)
+            self.sellcutProfitList.append(orderID)
+            self.writeCtaLog(u'空头头止损价格：' + str(self.shortStop))
+            self.orderList.append(orderID)
 
         # 发出状态更新事件
         self.putEvent()
@@ -524,7 +513,7 @@ class MultiCycleStrategy(CtaTemplate):
     # ----------------------------------------------------------------------
     def onLongCycle(self,bar):
 
-        print 'cycletime:', bar.datetime
+        #print 'cycletime:', bar.datetime
         #print bar.datetime
         self.longCycleCloseArray[0:self.longCycleBufferSize - 1] = self.longCycleCloseArray[1:self.longCycleBufferSize]
         self.longCycleHighArray[0:self.longCycleBufferSize - 1] = self.longCycleHighArray[1:self.longCycleBufferSize]
@@ -535,8 +524,8 @@ class MultiCycleStrategy(CtaTemplate):
         self.longCycleHighArray[-1] = bar.high
         self.longCycleLowArray[-1] = bar.low
         self.longCycleVolumeArray[-1] = bar.volume
-        self.longCycleBufferCount += 1
 
+        self.longCycleBufferCount += 1
         if self.longCycleBufferCount < self.longCycleBufferSize:
             return
 
@@ -544,14 +533,28 @@ class MultiCycleStrategy(CtaTemplate):
         self.longCycleMAshort = talib.MA(self.longCycleCloseArray, self.shortMAperiod)
 
         maLongCondition = self.longCycleMAshort[-1] >  self.longCycleMAlong[-1]
-        self.MACD = talib.MACD(self.longCycleCloseArray,fastperiod=self.shortMAperiod,slowperiod=self.longMAperiod,signalperiod=9)
+        slowk, slowd = talib.STOCH(self.longCycleHighArray, self.longCycleLowArray,
+                                  self.longCycleCloseArray, fastk_period=5, slowk_period=3, slowk_matype=0, slowd_period=3, slowd_matype=0)
+        fastk, fastd = talib.STOCHF(self.longCycleHighArray, self.longCycleLowArray,
+                                    self.longCycleCloseArray, fastk_period=5, fastd_period=3, fastd_matype=0)
+        kdjLongCondition = slowk[-1] > slowd[-1]
+        kdjShortCondition = slowk[-1] < slowd[-1]
+
+        ta_adx = talib.ADX(self.longCycleHighArray,self.longCycleLowArray,self.longCycleCloseArray,14)
+        ta_ndi = talib.MINUS_DI(self.longCycleHighArray, self.longCycleLowArray, self.longCycleCloseArray, 14)
+        ta_pdi = talib.PLUS_DI(self.longCycleHighArray, self.longCycleLowArray, self.longCycleCloseArray, 14)
+        taLongCondition = ta_adx[-1] > 25
+        diLongCondition = ta_pdi[-1] >  ta_ndi[-1]
+        diShortCondition = ta_pdi[-1] < ta_ndi[-1]
+        #maLongCondition = (self.longCycleMAshort[-2:] > self.longCycleMAlong[-2:]).all()
+        #maShortCondition = (self.longCycleMAshort[-2:] < self.longCycleMAlong[-2:]).all()
+        #self.MACD = talib.MACD(self.longCycleCloseArray,fastperiod=self.shortMAperiod,slowperiod=self.longMAperiod,signalperiod=9)
         #print self.MACD[-1]
-        MACDLongCondition = self.MACD[0][-1] > self.MACD[-1][-1]
-        if maLongCondition:
-            #print 'MACD LONG Signal Triggered'
-            self.longCycleEnablFlag =  True
-        else:
-            self.longCycleEnablFlag = False
+        #MACDLongCondition = self.MACD[0][-1] > self.MACD[-1][-1]
+        if maLongCondition :
+            self.longCycleTradingFlag = 1
+        elif not maLongCondition :
+            self.longCycleTradingFlag = -1
 
     # ----------------------------------------------------------------------
     def onOrder(self, order):
@@ -611,8 +614,8 @@ if __name__ == '__main__':
     engine.setBacktestingMode(engine.BAR_MODE)
 
     # 设置回测用的数据起始日期
-    engine.setStartDate('20170601')
-    engine.setEndDate('20171201')
+    engine.setStartDate('20150601')
+    engine.setEndDate('20170601')
 
     # 设置产品相关参数
     engine.setInitialCapital(20000)  # 初始资金10w
@@ -651,10 +654,9 @@ if __name__ == '__main__':
     # 显示回测结果
     print u'多仓信号数量为：%d' % len(MultiCycleStrategy.signalBuy)
     print u'空仓信号数量为：%d' % len(MultiCycleStrategy.signalSell)
-    print u'多仓止盈数量为：%d' % len(MultiCycleStrategy.buycutProfitList)
-    print u'多仓止损数量为：%d' % len(MultiCycleStrategy.buycutLossList)
-    print u'空仓止盈数量为：%d' % len(MultiCycleStrategy.sellcutProfitList)
-    print u'空仓止损数量为：%d' % len(MultiCycleStrategy.sellcutLossList)
+    print u'多仓止盈止损信号数量为：%d' % len(MultiCycleStrategy.buycutProfitList)
+    print u'空仓止盈止损信号数量为：%d' % len(MultiCycleStrategy.sellcutProfitList)
+
 
     engine.showBacktestingResult()
 
