@@ -383,8 +383,8 @@ if __name__ == '__main__':
     engine.setPriceTick(1)  # 股指最小价格变动 0.2
     engine.setpnlPctToggle(True)  # 百分比显示开关
     # 设置使用的历史数据库
-    engine.setDatabase('FutureData_Index', 'rb000_1min_modi')
-
+    engine.setDatabase('FutureData_Sequence', 'rb888_1min_modi')
+    # engine.setDatabase('FutureData_Index', 'rb000_1min_modi')
     # 在引擎中创建策略对象
     d = {}
     engine.initStrategy(AtrOpenRatioStrategy, d)
